@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import os
 import sys
+import asyncio
 from pathlib import Path
 
 # === Windows 控制台 UTF-8 兼容 ===
@@ -139,7 +140,10 @@ def initialize_system():
     }
 
 
-def process_input(text: str, modules: dict) -> str:
+    return modules
+
+
+async def process_input(text: str, modules: dict) -> str:
     """处理用户输入的完整流水线
 
     流程: Thalamus → TemporalLobe → ParietalLobe → Hippocampus检索 → FrontalLobe
@@ -191,6 +195,14 @@ def process_input(text: str, modules: dict) -> str:
             brainstem.alert(alert_level, "Amygdala",
                            f"威胁等级={evaluated.threat_level:.2f}, 情绪={evaluated.emotion_label}")
 
+    # 2.3 纠错检查 (针对自然语言反馈)
+    feedback_score = modules["frontal_lobe"].analyze_feedback(text)
+    if feedback_score > 0.5:
+        correction_resp = modules["frontal_lobe"].trigger_correction(
+            modules["hippocampus"], modules["knowledge_base"], modules["basal_ganglia"]
+        )
+        return correction_resp
+
     # 3. 慢速通路: 语义处理
     visual_desc = None
     auditory_desc = None
@@ -228,17 +240,18 @@ def process_input(text: str, modules: dict) -> str:
 
     # 7. FrontalLobe: 生成回复
     logger.info("▶ FrontalLobe 推理生成回复...")
-    response = frontal_lobe.generate_response(
+    response = await asyncio.to_thread(
+        modules["frontal_lobe"].generate_response,
         user_input=text,
         episode=episode,
         memories=memories,
-        knowledge_rules=rule_texts if rule_texts else None,
+        knowledge_rules=rule_texts if rule_texts else None
     )
 
     return response
 
 
-def handle_command(command: str, modules: dict) -> str | None:
+async def handle_command(command: str, modules: dict) -> str | None:
     """处理系统命令
 
     Returns:
@@ -252,7 +265,7 @@ def handle_command(command: str, modules: dict) -> str | None:
     elif cmd == "/sleep":
         logger.info("手动触发睡眠巩固...")
         modules["brainstem"].trigger_sleep()
-        result = modules["consolidation"].run_consolidation_cycle()
+        result = await asyncio.to_thread(modules["consolidation"].run_consolidation_cycle)
         return (
             f"\n💤 睡眠巩固完成:\n"
             f"  采样记忆: {result['sampled_memories']}\n"
@@ -301,6 +314,11 @@ def handle_command(command: str, modules: dict) -> str | None:
             lines.append(f"  {i}. [{conf:.2f}] {text}")
         return "\n".join(lines)
 
+    elif cmd == "/wrong":
+        return modules["frontal_lobe"].trigger_correction(
+            modules["hippocampus"], modules["knowledge_base"], modules["basal_ganglia"]
+        )
+
     elif cmd == "/help":
         return (
             "\n📖 可用命令:\n"
@@ -308,6 +326,7 @@ def handle_command(command: str, modules: dict) -> str | None:
             "  /status   — 查看系统状态\n"
             "  /memories — 查看海马体记忆\n"
             "  /rules    — 查看知识图谱规则\n"
+            "  /wrong    — 手动触发系统纠错 (撤回/降低最近规则权重)\n"
             "  /help     — 显示帮助\n"
             "  /quit     — 退出系统\n"
         )
@@ -316,8 +335,8 @@ def handle_command(command: str, modules: dict) -> str | None:
         return f"❓ 未知命令: {command}。输入 /help 查看可用命令。"
 
 
-def main() -> None:
-    """主入口"""
+async def main_async() -> None:
+    """主入口 (异步)"""
     print_banner()
 
     try:
@@ -325,14 +344,15 @@ def main() -> None:
     except Exception as e:
         logger.error(f"系统初始化失败: {e}")
         print(f"\n❌ 初始化失败: {e}")
-        print("请确保 Ollama 正在运行且已安装所需模型。")
         return
 
     print("\n🟢 NeuroCortex AI 已就绪！输入文本开始对话，输入 /help 查看命令。\n")
 
     while True:
         try:
-            user_input = input("🧑 You > ").strip()
+            # 模拟异步输入
+            user_input = await asyncio.to_thread(input, "🧑 You > ")
+            user_input = user_input.strip()
         except (EOFError, KeyboardInterrupt):
             print("\n👋 再见！")
             break
@@ -340,23 +360,25 @@ def main() -> None:
         if not user_input:
             continue
 
-        # 命令处理
         if user_input.startswith("/"):
-            result = handle_command(user_input, modules)
+            result = await handle_command(user_input, modules)
             if result is None:
                 print("\n👋 NeuroCortex AI 已关闭。再见！")
                 break
             print(result)
             continue
 
-        # 正常对话处理
         print("\n🧠 NeuroCortex AI 正在思考...\n")
         try:
-            response = process_input(user_input, modules)
+            response = await process_input(user_input, modules)
             print(f"🤖 AI > {response}\n")
         except Exception as e:
             logger.error(f"处理失败: {e}")
             print(f"\n❌ 处理出错: {e}\n")
+
+
+def main():
+    asyncio.run(main_async())
 
 
 if __name__ == "__main__":

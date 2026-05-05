@@ -16,6 +16,7 @@ sentence-transformers>=2.2
 
 # UI
 streamlit>=1.30
+streamlit-agraph>=0.0.45
 
 # Async
 aiohttp>=3.9

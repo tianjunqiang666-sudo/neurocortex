@@ -127,6 +127,36 @@ class KnowledgeBase:
         self._save()
         return rule_id
 
+    def add_entity(self, entity_name: str, entity_type: str = "general", **kwargs) -> str:
+        """添加实体节点"""
+        entity_id = f"ent_{entity_name.replace(' ', '_').lower()}"
+        if not self.graph.has_node(entity_id):
+            self.graph.add_node(entity_id, type="entity", name=entity_name, 
+                                entity_type=entity_type, **kwargs)
+            logger.debug(f"新实体: {entity_id}")
+            self._save()
+        return entity_id
+
+    def add_relation(self, source_id: str, target_id: str, relation: str, **kwargs) -> None:
+        """添加有向关系"""
+        self.graph.add_edge(source_id, target_id, relation=relation, **kwargs)
+        logger.debug(f"新关系: {source_id} --({relation})--> {target_id}")
+        self._save()
+
+    def deprecate_rule(self, rule_id: str, penalty: float = 0.5) -> bool:
+        """降低规则置信度 (由于负反馈)"""
+        if not self.graph.has_node(rule_id):
+            return False
+        
+        old_conf = self.graph.nodes[rule_id].get("confidence", 0.5)
+        new_conf = max(0.0, old_conf - penalty)
+        self.graph.nodes[rule_id]["confidence"] = new_conf
+        self.graph.nodes[rule_id]["is_deprecated"] = (new_conf < 0.2)
+        
+        logger.warning(f"规则降权: {rule_id} 置信度 {old_conf:.2f} → {new_conf:.2f}")
+        self._save()
+        return True
+
     def query_rules(self, context: str = "", rule_type: str | None = None,
                     min_confidence: float = 0.5) -> list[dict[str, Any]]:
         """查询相关规则
@@ -160,6 +190,32 @@ class KnowledgeBase:
 
         results.sort(key=lambda r: r.get("confidence", 0), reverse=True)
         return results
+
+    def query_related_rules(self, start_node_id: str, depth: int = 2) -> list[dict[str, Any]]:
+        """基于图拓扑的多跳规则查询"""
+        if not self.graph.has_node(start_node_id):
+            return []
+        
+        # 使用 BFS 查找邻近节点
+        related_rules = []
+        visited = {start_node_id}
+        queue = [(start_node_id, 0)]
+        
+        while queue:
+            curr_id, curr_depth = queue.pop(0)
+            if curr_depth >= depth:
+                continue
+                
+            for neighbor in self.graph.neighbors(curr_id):
+                if neighbor not in visited:
+                    visited.add(neighbor)
+                    queue.append((neighbor, curr_depth + 1))
+                    if neighbor.startswith("rule_"):
+                        attrs = self.graph.nodes[neighbor]
+                        if attrs.get("confidence", 0) >= 0.5:
+                            related_rules.append({"id": neighbor, **attrs})
+        
+        return related_rules
 
     def get_all_rules(self) -> list[dict[str, Any]]:
         """获取所有规则"""

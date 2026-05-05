@@ -164,6 +164,32 @@ class FrontalLobe:
             self.working_memory.add_turn("assistant", error_msg)
             return error_msg
 
+    def analyze_feedback(self, user_input: str) -> float:
+        """分析用户输入是否包含负面反馈 (0.0 ~ 1.0)"""
+        # 简单关键字匹配，后续可升级为 LLM 分类
+        negative_signals = ["不对", "错误", "记错了", "并不是", "瞎说", "胡扯", "wrong", "false", "not true"]
+        matches = [s for s in negative_signals if s in user_input.lower()]
+        
+        if matches:
+            logger.warning(f"检测到潜在负面反馈: {matches}")
+            return 0.8 # 高置信度负面反馈
+        return 0.0
+
+    def trigger_correction(self, hippocampus: Any, knowledge_base: Any, basal_ganglia: Any) -> str:
+        """执行自我纠错逻辑"""
+        logger.info("▶ FrontalLobe 执行纠错流程...")
+        
+        # 1. 撤回最近的海马体记忆 (设置为低重要性)
+        # 获取最近 5 轮对话中产生的 Episode
+        # 这里简化处理：降低知识库中最近添加的规则的置信度
+        rules = knowledge_base.get_all_rules()
+        if rules:
+            latest_rule = rules[-1] # 假设最后一条是最近的
+            knowledge_base.deprecate_rule(latest_rule["id"], penalty=0.4)
+            return f"明白了，我已经降低了规则 '{latest_rule.get('rule_text', '')[:30]}...' 的可信度。我会努力改进我的记忆。"
+            
+        return "抱歉，我还没能确定哪条记忆出了问题，但我会保持警惕。"
+
     def plan(self, context: str, goal: str) -> list[str]:
         """任务分解与规划
 

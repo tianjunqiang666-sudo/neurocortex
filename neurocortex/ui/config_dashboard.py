@@ -21,6 +21,8 @@ if str(_PROJECT_ROOT.parent) not in sys.path:
 
 from neurocortex.core.config_loader import ConfigLoader
 from neurocortex.core.prefrontal_config import ModelRouter
+from neurocortex.memory.knowledge_base import KnowledgeBase
+from streamlit_agraph import agraph, Node, Edge, Config
 
 
 def main() -> None:
@@ -41,7 +43,7 @@ def main() -> None:
     router: ModelRouter = st.session_state.router
 
     # 侧边栏
-    page = st.sidebar.radio("导航", ["📋 模型管理", "🔧 脑区配置", "📊 系统状态", "➕ 添加模型"])
+    page = st.sidebar.radio("导航", ["📋 模型管理", "🔧 脑区配置", "📊 系统状态", "🕸️ 知识图谱", "➕ 添加模型"])
 
     if page == "📋 模型管理":
         _page_model_management(router)
@@ -49,6 +51,8 @@ def main() -> None:
         _page_brain_region_config(router)
     elif page == "📊 系统状态":
         _page_system_status(router)
+    elif page == "🕸️ 知识图谱":
+        _page_knowledge_graph()
     elif page == "➕ 添加模型":
         _page_add_model(router, config_path)
 
@@ -150,6 +154,55 @@ def _page_system_status(router: ModelRouter) -> None:
         st.json(system_cfg)
     else:
         st.info("无系统配置")
+
+
+def _page_knowledge_graph() -> None:
+    """知识图谱可视化页面"""
+    st.header("🕸️ 长期知识图谱")
+    
+    kb = KnowledgeBase()
+    status = kb.get_status()
+    
+    col1, col2, col3 = st.columns(3)
+    col1.metric("节点数", status["total_nodes"])
+    col2.metric("边数", status["total_edges"])
+    col3.metric("存储路径", Path(status["storage_path"]).name)
+
+    if status["total_nodes"] == 0:
+        st.info("图谱目前为空，请在主系统中通过对话和睡眠巩固来生成知识。")
+        return
+
+    # 构建 agraph 节点和边
+    nodes = []
+    edges = []
+    
+    for nid, attrs in kb.graph.nodes(data=True):
+        node_type = attrs.get("type", "rule")
+        label = attrs.get("rule_text", attrs.get("name", nid))[:20]
+        
+        # 不同类型节点使用不同颜色
+        color = "#60A5FA" # blue for rule
+        if node_type == "entity":
+            color = "#F87171" # red
+        elif node_type == "episode":
+            color = "#34D399" # green
+            
+        nodes.append(Node(id=nid, label=label, size=15, color=color))
+
+    for src, tgt, attrs in kb.graph.edges(data=True):
+        label = attrs.get("relation", "")
+        edges.append(Edge(source=src, target=tgt, label=label))
+
+    config = Config(width=900, height=600, directed=True, nodeHighlightBehavior=True, 
+                    highlightColor="#F79767", collapsible=True)
+
+    agraph(nodes=nodes, edges=edges, config=config)
+
+    st.markdown("---")
+    st.subheader("节点详情")
+    for nid, attrs in kb.graph.nodes(data=True):
+        with st.expander(f"节点: {nid}"):
+            st.json(attrs)
 
 
 def _page_add_model(router: ModelRouter, config_path: Path) -> None:
