@@ -1,114 +1,115 @@
 """
 NeuroCortex AI — BasalGanglia (基底节)
-========================================
-快速通路：习惯学习与执行、奖励预测。
-匹配当前上下文与已学得策略，高置信度直接输出动作，绕过皮层。
+======================================
+快速通路：习惯与条件反射存储。
+维护“刺激-反应”习惯库。对于高频重复的模式，系统会形成肌肉记忆直接响应，绕过慢速皮层。
 """
 
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any, Optional
 
 from loguru import logger
 
-
-class Action:
-    """自动化动作指令"""
-
-    def __init__(self, action_type: str, content: str, confidence: float) -> None:
-        self.action_type = action_type
-        self.content = content
-        self.confidence = confidence
-
-    def to_dict(self) -> dict[str, Any]:
-        return {"action_type": self.action_type, "content": self.content,
-                "confidence": self.confidence}
-
-    def __repr__(self) -> str:
-        return f"Action({self.action_type}, confidence={self.confidence:.2f})"
+_DATA_DIR = Path(__file__).parent.parent.parent / "data"
+_HABITS_FILE = _DATA_DIR / "habits.json"
 
 
 class BasalGanglia:
-    """基底节 — 习惯匹配与自动化执行
-
-    维护"刺激-反应"习惯库，高置信度匹配时直接输出动作。
-
-    Attributes:
-        habits: 习惯库 {pattern_key: Action}
-        match_threshold: 匹配置信度阈值
+    """基底节 — 习惯反射匹配
+    
+    职责:
+      - 维护独立的习惯库 (habits.json)
+      - 提供毫秒级的模式匹配
+      - 若匹配成功，输出固定的动作指令，直接短路慢速系统
     """
 
-    def __init__(self, habits_path: str | Path | None = None,
-                 match_threshold: float = 0.85) -> None:
-        self.match_threshold = match_threshold
-        self.habits: dict[str, dict[str, Any]] = {}
-        self._habits_path = Path(habits_path) if habits_path else None
-
-        if self._habits_path and self._habits_path.exists():
-            self._load_habits()
-
-    def habit_lookup(self, state: dict[str, Any]) -> Optional[Action]:
-        """查找是否有匹配的习惯
-
-        Args:
-            state: 当前状态描述
-
-        Returns:
-            匹配的 Action，或 None（放行至皮层）
-        """
-        if not self.habits:
-            return None  # 无习惯，放行
-
-        state_key = self._state_to_key(state)
-
-        for pattern, habit_data in self.habits.items():
-            if pattern in state_key:
-                confidence = habit_data.get("confidence", 0.0)
-                if confidence >= self.match_threshold:
-                    action = Action(
-                        action_type=habit_data["action_type"],
-                        content=habit_data["content"],
-                        confidence=confidence,
-                    )
-                    logger.info(f"基底节习惯匹配: {pattern} → {action}")
-                    return action
-
-        logger.debug("基底节未匹配到习惯，放行至皮层")
-        return None
-
-    def add_habit(self, pattern: str, action_type: str, content: str,
-                  confidence: float = 0.9) -> None:
-        """添加或更新习惯
-
-        Args:
-            pattern: 匹配模式 (关键词或状态描述)
-            action_type: 动作类型
-            content: 动作内容
-            confidence: 置信度
-        """
-        self.habits[pattern] = {
-            "action_type": action_type, "content": content,
-            "confidence": confidence,
-        }
-        logger.info(f"基底节添加习惯: '{pattern}' → {action_type}")
-        self._save_habits()
-
-    def _state_to_key(self, state: dict[str, Any]) -> str:
-        """将状态字典转为匹配键"""
-        return json.dumps(state, ensure_ascii=False, sort_keys=True).lower()
+    def __init__(self) -> None:
+        self.habits: list[dict[str, Any]] = []
+        self._load_habits()
 
     def _load_habits(self) -> None:
-        try:
-            with open(self._habits_path, "r", encoding="utf-8") as f:
-                self.habits = json.load(f)
-            logger.info(f"加载 {len(self.habits)} 条习惯")
-        except Exception as e:
-            logger.warning(f"习惯加载失败: {e}")
+        """加载习惯库"""
+        _DATA_DIR.mkdir(parents=True, exist_ok=True)
+        if not _HABITS_FILE.exists():
+            # 预置一些默认习惯测试
+            default_habits = [
+                {
+                    "id": "habit_01",
+                    "trigger_pattern": r"^(你好|hello|hi)[!！]?$",
+                    "response": "你好！我是 NeuroCortex AI，准备就绪。",
+                    "description": "基础问候反射"
+                },
+                {
+                    "id": "habit_02",
+                    "trigger_pattern": r"(退下|闭嘴|安静)",
+                    "response": "好的，我进入静默模式。",
+                    "description": "紧急静默反射"
+                }
+            ]
+            with open(_HABITS_FILE, "w", encoding="utf-8") as f:
+                json.dump(default_habits, f, indent=2, ensure_ascii=False)
+            self.habits = default_habits
+            logger.info("初始化了默认习惯库")
+        else:
+            try:
+                with open(_HABITS_FILE, "r", encoding="utf-8") as f:
+                    self.habits = json.load(f)
+                logger.info(f"成功加载 {len(self.habits)} 个习惯规则")
+            except Exception as e:
+                logger.error(f"加载习惯库失败: {e}")
+                self.habits = []
 
-    def _save_habits(self) -> None:
-        if self._habits_path:
-            self._habits_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(self._habits_path, "w", encoding="utf-8") as f:
-                json.dump(self.habits, f, ensure_ascii=False, indent=2)
+    def save_habits(self) -> None:
+        """保存习惯库"""
+        try:
+            with open(_HABITS_FILE, "w", encoding="utf-8") as f:
+                json.dump(self.habits, f, indent=2, ensure_ascii=False)
+            logger.debug("习惯库已同步至磁盘")
+        except Exception as e:
+            logger.error(f"保存习惯库失败: {e}")
+
+    def add_habit(self, pattern: str, response: str, desc: str = "") -> None:
+        """添加新习惯（由睡眠巩固提取出时调用）"""
+        habit_id = f"habit_{len(self.habits) + 1:03d}"
+        new_habit = {
+            "id": habit_id,
+            "trigger_pattern": pattern,
+            "response": response,
+            "description": desc
+        }
+        self.habits.append(new_habit)
+        self.save_habits()
+        logger.info(f"基底节习得了新习惯: {desc} -> {response}")
+
+    def lookup(self, packet: Any) -> Optional[str]:
+        """查表匹配习惯反射
+        
+        Args:
+            packet: SensoryPacket (包含 raw_data 和 modality)
+            
+        Returns:
+            若匹配，返回对应的固定回复；否则返回 None
+        """
+        if packet.modality != "text":
+            return None  # 目前只针对文本做正则反射
+            
+        text = str(packet.raw_data).strip()
+        logger.info(f"▶ BasalGanglia 正在查表: input='{text}'")
+        
+        for habit in self.habits:
+            pattern = habit.get("trigger_pattern", "")
+            if not pattern:
+                continue
+                
+            try:
+                if re.search(pattern, text, re.IGNORECASE):
+                    logger.success(f"⚡ 基底节习惯触发! 匹配规则: {habit.get('id')} - {habit.get('description')}")
+                    return habit.get("response")
+            except re.error as e:
+                logger.error(f"习惯正则表达式错误 ({pattern}): {e}")
+                
+        return None

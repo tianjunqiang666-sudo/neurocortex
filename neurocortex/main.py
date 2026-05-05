@@ -63,6 +63,7 @@ def initialize_system():
     from neurocortex.core.brainstem import Brainstem
     from neurocortex.core.thalamus import Thalamus
     from neurocortex.pathways.fast.amygdala import Amygdala
+    from neurocortex.pathways.fast.basal_ganglia import BasalGanglia
     from neurocortex.pathways.slow.occipital_lobe import OccipitalLobe
     from neurocortex.pathways.slow.temporal_lobe import TemporalLobe
     from neurocortex.pathways.slow.parietal_lobe import ParietalLobe
@@ -89,6 +90,7 @@ def initialize_system():
 
     # 快速通路
     amygdala = Amygdala(router)
+    basal_ganglia = BasalGanglia()
 
     # 慢速通路
     occipital_lobe = OccipitalLobe(router)
@@ -105,6 +107,7 @@ def initialize_system():
         router=router,
         hippocampus=hippocampus,
         knowledge_base=knowledge_base,
+        basal_ganglia=basal_ganglia,
         importance_threshold=system_cfg.get("memory_importance_threshold", 0.8),
     )
 
@@ -125,6 +128,7 @@ def initialize_system():
         "brainstem": brainstem,
         "thalamus": thalamus,
         "amygdala": amygdala,
+        "basal_ganglia": basal_ganglia,
         "occipital_lobe": occipital_lobe,
         "temporal_lobe": temporal_lobe,
         "parietal_lobe": parietal_lobe,
@@ -155,6 +159,7 @@ def process_input(text: str, modules: dict) -> str:
     hippocampus = modules["hippocampus"]
     knowledge_base = modules["knowledge_base"]
     amygdala = modules["amygdala"]
+    basal_ganglia = modules["basal_ganglia"]
     brainstem = modules["brainstem"]
 
     import os
@@ -170,7 +175,14 @@ def process_input(text: str, modules: dict) -> str:
     logger.info(f"▶ Thalamus 处理输入... (模态: {modality})")
     packet = thalamus.process_input(text, modality=modality)
 
-    # 2. 快速通路检查: 若高显著性，经过杏仁核
+    # 2. 快速通路检查 (系统 1)
+    
+    # 2.1 BasalGanglia: 习惯匹配
+    habit_response = basal_ganglia.lookup(packet)
+    if habit_response:
+        return habit_response
+
+    # 2.2 Amygdala: 若高显著性，经过杏仁核
     if "Amygdala" in packet.routing:
         logger.info("▶ Amygdala 评估威胁...")
         evaluated = amygdala.evaluate(packet)
