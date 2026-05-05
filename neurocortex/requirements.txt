@@ -19,3 +19,7 @@ streamlit>=1.30
 
 # Async
 aiohttp>=3.9
+
+# Multimodal (Phase 2)
+openai-whisper>=20231117
+Pillow>=10.0.0

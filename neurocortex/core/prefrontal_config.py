@@ -49,12 +49,15 @@ class LLMClient:
                 self._client = None
 
     def chat(self, prompt: str, system_prompt: str = "", temperature: float = 0.7,
-             max_tokens: int = 2048, json_mode: bool = False) -> str:
+             max_tokens: int = 2048, json_mode: bool = False, images: list[str] | None = None) -> str:
         """统一对话接口"""
         messages = []
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": prompt})
+
+        if images:
+            messages[-1]["images"] = images
 
         try:
             if self.provider == "ollama":

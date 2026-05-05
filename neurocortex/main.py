@@ -63,6 +63,7 @@ def initialize_system():
     from neurocortex.core.brainstem import Brainstem
     from neurocortex.core.thalamus import Thalamus
     from neurocortex.pathways.fast.amygdala import Amygdala
+    from neurocortex.pathways.slow.occipital_lobe import OccipitalLobe
     from neurocortex.pathways.slow.temporal_lobe import TemporalLobe
     from neurocortex.pathways.slow.parietal_lobe import ParietalLobe
     from neurocortex.pathways.slow.frontal_lobe import FrontalLobe
@@ -90,7 +91,8 @@ def initialize_system():
     amygdala = Amygdala(router)
 
     # 慢速通路
-    temporal_lobe = TemporalLobe()
+    occipital_lobe = OccipitalLobe(router)
+    temporal_lobe = TemporalLobe(router)
     parietal_lobe = ParietalLobe(
         error_threshold=system_cfg.get("prediction_error_threshold", 0.6),
     )
@@ -123,6 +125,7 @@ def initialize_system():
         "brainstem": brainstem,
         "thalamus": thalamus,
         "amygdala": amygdala,
+        "occipital_lobe": occipital_lobe,
         "temporal_lobe": temporal_lobe,
         "parietal_lobe": parietal_lobe,
         "frontal_lobe": frontal_lobe,
@@ -145,6 +148,7 @@ def process_input(text: str, modules: dict) -> str:
         系统回复
     """
     thalamus = modules["thalamus"]
+    occipital_lobe = modules["occipital_lobe"]
     temporal_lobe = modules["temporal_lobe"]
     parietal_lobe = modules["parietal_lobe"]
     frontal_lobe = modules["frontal_lobe"]
@@ -153,9 +157,18 @@ def process_input(text: str, modules: dict) -> str:
     amygdala = modules["amygdala"]
     brainstem = modules["brainstem"]
 
+    import os
+    modality = "text"
+    if os.path.isfile(text):
+        ext = text.lower().split('.')[-1]
+        if ext in ['png', 'jpg', 'jpeg', 'webp', 'gif']:
+            modality = "visual"
+        elif ext in ['mp3', 'wav', 'ogg', 'm4a', 'flac']:
+            modality = "auditory"
+
     # 1. Thalamus: 生成 SensoryPacket
-    logger.info("▶ Thalamus 处理输入...")
-    packet = thalamus.process_input(text, modality="text")
+    logger.info(f"▶ Thalamus 处理输入... (模态: {modality})")
+    packet = thalamus.process_input(text, modality=modality)
 
     # 2. 快速通路检查: 若高显著性，经过杏仁核
     if "Amygdala" in packet.routing:
@@ -166,16 +179,30 @@ def process_input(text: str, modules: dict) -> str:
             brainstem.alert(alert_level, "Amygdala",
                            f"威胁等级={evaluated.threat_level:.2f}, 情绪={evaluated.emotion_label}")
 
-    # 3. 慢速通路: TemporalLobe 语义处理
-    logger.info("▶ TemporalLobe 语义处理...")
-    semantic_desc = temporal_lobe.process(packet)
+    # 3. 慢速通路: 语义处理
+    visual_desc = None
+    auditory_desc = None
+    emotion_label = "neutral"
+
+    if modality == "visual":
+        logger.info("▶ OccipitalLobe 视觉处理...")
+        visual_desc = occipital_lobe.process(packet)
+    elif modality == "auditory":
+        logger.info("▶ TemporalLobe 听觉处理...")
+        auditory_desc = temporal_lobe.process(packet)
+        emotion_label = auditory_desc.get("speaker_emotion", "neutral")
+    else:
+        logger.info("▶ TemporalLobe 语义处理...")
+        auditory_desc = temporal_lobe.process(packet)
+        emotion_label = auditory_desc.get("speaker_emotion", "neutral")
 
     # 4. ParietalLobe: 融合为 EpisodeTensor
     logger.info("▶ ParietalLobe 多模态融合...")
     episode = parietal_lobe.fuse(
-        auditory_desc=semantic_desc,
-        text_input=text,
-        emotion_label=semantic_desc.get("speaker_emotion", "neutral"),
+        visual_desc=visual_desc,
+        auditory_desc=auditory_desc,
+        text_input=text if modality == "text" else f"[{modality} file input]",
+        emotion_label=emotion_label,
     )
 
     # 5. Hippocampus: 编码当前情景 & 检索相关记忆

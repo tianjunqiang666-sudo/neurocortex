@@ -9,9 +9,18 @@ NeuroCortex AI — TemporalLobe (颞叶)
 from __future__ import annotations
 
 import re
+import os
+from pathlib import Path
 from typing import Any
 
 from loguru import logger
+
+try:
+    import whisper
+    _HAS_WHISPER = True
+except ImportError:
+    _HAS_WHISPER = False
+
 
 
 class TemporalLobe:
@@ -26,8 +35,13 @@ class TemporalLobe:
         "output_schema": {"type": "object"},
     }
 
-    def __init__(self) -> None:
-        logger.info("TemporalLobe 初始化")
+    def __init__(self, model_router: Any = None) -> None:
+        self.model_router = model_router
+        self._whisper_model = None
+        if _HAS_WHISPER:
+            logger.info("TemporalLobe 初始化: 检测到 whisper 库可用")
+        else:
+            logger.warning("TemporalLobe 初始化: 缺少 whisper 库，请安装 openai-whisper 处理真实音频")
 
     def process(self, sensory_packet: Any) -> dict[str, Any]:
         """处理听觉/文本输入，输出结构化语义摘要
@@ -43,15 +57,39 @@ class TemporalLobe:
         modality = sensory_packet.modality if hasattr(sensory_packet, 'modality') else "text"
 
         if modality == "text":
-            return self._process_text(raw_data)
+            return self._process_text(str(raw_data))
+        elif modality == "auditory":
+            return self._process_audio(str(raw_data))
         else:
-            # 阶段二：音频处理占位
-            return {
-                "transcript": raw_data,
-                "keywords": [],
-                "speaker_emotion": "unknown",
-                "_note": "阶段一占位，阶段二集成语音模型",
-            }
+            return {"transcript": "", "keywords": [], "speaker_emotion": "unknown"}
+
+    def _process_audio(self, audio_path: str) -> dict[str, Any]:
+        """处理音频文件 (调用 Whisper 进行语音转文字)"""
+        if not Path(audio_path).exists():
+            logger.error(f"听觉处理失败，音频文件不存在: {audio_path}")
+            return {"transcript": "", "keywords": [], "speaker_emotion": "file_not_found"}
+
+        if not _HAS_WHISPER:
+            logger.warning("由于缺少 whisper 库，使用模拟音频处理")
+            text = f"[模拟音频转文字: 播放了 {os.path.basename(audio_path)}]"
+            return self._process_text(text)
+
+        try:
+            if self._whisper_model is None:
+                logger.info("正在加载 Whisper 模型 (首次加载可能需要时间)...")
+                # 使用 base 模型平衡速度与准确度
+                self._whisper_model = whisper.load_model("base")
+
+            logger.info(f"▶ TemporalLobe 正在识别音频 {os.path.basename(audio_path)}...")
+            result = self._whisper_model.transcribe(audio_path)
+            transcript = result["text"].strip()
+            
+            logger.debug(f"音频识别结果: {transcript}")
+            return self._process_text(transcript)
+
+        except Exception as e:
+            logger.error(f"语音识别异常: {e}")
+            return {"transcript": "", "keywords": [], "speaker_emotion": "processing_error"}
 
     def _process_text(self, text: str) -> dict[str, Any]:
         """文本语义处理（阶段一简化版）"""
