@@ -7,8 +7,12 @@ You are free to:
 - Adapt — remix, transform, and build upon the material
 
 Under the following terms:
-- Attribution — You must give appropriate credit, provide a link to the license, and indicate if changes were made. You may do so in any reasonable manner, but not in any way that suggests the licensor endorses you or your use.
+- Attribution — You must give appropriate credit (mentioning "NeuroCortex AI" and the original repository), provide a link to the license, and indicate if changes were made. You may do so in any reasonable manner, but not in any way that suggests the licensor endorses you or your use.
 - NonCommercial — You may not use the material for commercial purposes.
+
+How to Attribute:
+When using, modifying, or distributing this software, you must include the following notice in your documentation and/or about pages:
+"This project uses NeuroCortex AI (https://github.com/tianjunqiang666-sudo/neurocortex), originally developed by the NeuroCortex AI Contributors."
 
 No additional restrictions — You may not apply legal terms or technological measures that legally restrict others from doing anything the license permits.
 
