@@ -1,0 +1,21 @@
+# NeuroCortex AI - Dependencies
+# Core
+pyyaml>=6.0
+loguru>=0.7
+apscheduler>=3.10
+chromadb>=0.4
+networkx>=3.0
+
+# LLM Clients
+ollama>=0.4
+openai>=1.0
+anthropic>=0.25
+
+# Embeddings & NLP
+sentence-transformers>=2.2
+
+# UI
+streamlit>=1.30
+
+# Async
+aiohttp>=3.9

@@ -1,0 +1,78 @@
+# NeuroCortex AI — 模型注册表 (含能力契约)
+# 所有 API Key 必须通过环境变量读取，绝不出现在此文件中
+
+model_registry:
+  # ─── 本地快速模型：用于低延迟、结构化输出任务 ───
+  local-fast:
+    provider: ollama
+    model_name: "qwen2.5:7b"
+    endpoint: "http://localhost:11434"
+    scope: ["amygdala", "thalamus", "parietal"]
+    capability_contract:
+      input_schema:
+        type: object
+        properties:
+          text: {type: string}
+      output_schema:
+        type: object
+        properties:
+          threat_level: {type: number, minimum: 0, maximum: 1}
+          emotion_label: {type: string}
+      reasoning_depth: low
+
+  # ─── 本地智能模型：用于深度推理、规划、知识蒸馏 ───
+  local-smart:
+    provider: ollama
+    model_name: "deepseek-r1:8b"
+    endpoint: "http://localhost:11434"
+    scope: ["frontal", "hippocampus-consolidation"]
+    capability_contract:
+      output_schema:
+        type: string
+      reasoning_depth: high
+
+  # ─── 本地视觉模型：用于视觉感知 ───
+  local-vision:
+    provider: ollama
+    model_name: "llava:7b"
+    endpoint: "http://localhost:11434"
+    scope: ["occipital"]
+    capability_contract:
+      output_schema:
+        type: object
+        properties:
+          objects: {type: array}
+          scene: {type: string}
+      reasoning_depth: low
+
+  # ─── 云端模型模板（按需启用）───
+  # cloud-deepseek:
+  #   provider: openai_compatible
+  #   model_name: "deepseek-chat"
+  #   endpoint: "https://api.deepseek.com/v1"
+  #   api_key_env: "DEEPSEEK_API_KEY"
+  #   scope: ["frontal", "parietal"]
+  #   capability_contract:
+  #     output_schema: {type: string}
+  #     reasoning_depth: high
+
+  # cloud-claude:
+  #   provider: anthropic
+  #   model_name: "claude-3-haiku-20240307"
+  #   api_key_env: "ANTHROPIC_API_KEY"
+  #   scope: ["parietal", "meta-evaluation"]
+  #   capability_contract:
+  #     output_schema:
+  #       type: object
+  #       properties:
+  #         prediction_text: {type: string}
+  #         confidence: {type: number}
+  #     reasoning_depth: high
+
+# ─── 系统全局设置 ───
+system:
+  wake_duration_minutes: 60
+  sleep_duration_minutes: 10
+  prediction_error_threshold: 0.6
+  memory_importance_threshold: 0.8
+  embedding_model: "all-MiniLM-L6-v2"
