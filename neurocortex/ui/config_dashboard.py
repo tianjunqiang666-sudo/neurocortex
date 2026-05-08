@@ -43,16 +43,20 @@ def main() -> None:
     router: ModelRouter = st.session_state.router
 
     # 侧边栏
-    page = st.sidebar.radio("导航", ["📋 模型管理", "🔧 脑区配置", "📊 系统状态", "🕸️ 知识图谱", "➕ 添加模型"])
+    page = st.sidebar.radio("导航", ["📋 模型管理", "🔧 脑区配置", "🧠 神经通路", "📊 系统状态", "🕸️ 知识图谱", "⏱️ 性能分析", "➕ 添加模型"])
 
     if page == "📋 模型管理":
         _page_model_management(router)
     elif page == "🔧 脑区配置":
         _page_brain_region_config(router)
+    elif page == "🧠 神经通路":
+        _page_neuro_visualizer()
     elif page == "📊 系统状态":
         _page_system_status(router)
     elif page == "🕸️ 知识图谱":
         _page_knowledge_graph()
+    elif page == "⏱️ 性能分析":
+        _page_telemetry()
     elif page == "➕ 添加模型":
         _page_add_model(router, config_path)
 
@@ -148,12 +152,58 @@ def _page_system_status(router: ModelRouter) -> None:
             st.markdown(f"- `{cid}` → {client.model_name}")
 
     st.markdown("---")
+    st.subheader("📈 自适应参数监控")
+    
+    from neurocortex.core.adaptive_params import get_adaptive_manager
+    am = get_adaptive_manager()
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        param = am.params["prediction_error"]
+        st.write(f"**{param.name}**")
+        st.metric("当前动态阈值", f"{param.get_threshold():.2f}")
+        
+        if param.history:
+            import pandas as pd
+            history_df = pd.DataFrame({"error": list(param.history)})
+            st.line_chart(history_df)
+        else:
+            st.info("尚无历史数据")
+
+    with col2:
+        param = am.params["feedback_sensitivity"]
+        st.write(f"**{param.name}**")
+        st.metric("当前动态阈值", f"{param.get_threshold():.2f}")
+        
+        if param.history:
+            import pandas as pd
+            history_df = pd.DataFrame({"sensitivity": list(param.history)})
+            st.line_chart(history_df)
+        else:
+            st.info("尚无历史数据")
+
+    st.markdown("---")
     st.subheader("系统配置")
     system_cfg = router.config_loader.get_system_settings()
     if system_cfg:
         st.json(system_cfg)
     else:
         st.info("无系统配置")
+
+
+def _page_neuro_visualizer() -> None:
+    """神经通路可视化页面 (内嵌 HTML)"""
+    st.header("🧠 神经通路实时监控")
+    st.markdown("该页面展示了 NeuroCortex AI 内部各脑区的实时信号流动情况。")
+    
+    # 提醒用户启动服务器
+    st.info("请确保 API 服务已启动: `uvicorn neurocortex.api.server:app --port 8000`")
+    
+    # 内嵌 Iframe 或提供链接
+    st.markdown("[👉 在新窗口打开高科技监控面板 (推荐)](http://localhost:8000/visualizer)")
+    
+    st.components.v1.iframe("http://localhost:8000/visualizer", height=700, scrolling=True)
 
 
 def _page_knowledge_graph() -> None:
@@ -203,6 +253,45 @@ def _page_knowledge_graph() -> None:
     for nid, attrs in kb.graph.nodes(data=True):
         with st.expander(f"节点: {nid}"):
             st.json(attrs)
+
+
+def _page_telemetry() -> None:
+    """性能追踪可视化页面"""
+    st.header("⏱️ 系统性能追踪 (Telemetry)")
+    
+    from neurocortex.core.telemetry import get_telemetry
+    tel = get_telemetry()
+    stats = tel.get_module_stats()
+    
+    if not stats:
+        st.info("暂无性能追踪数据。请在系统运行并触发脑区活动后查看。")
+        return
+        
+    st.subheader("模块响应延迟统计")
+    
+    # 转换为适合图表的格式
+    import pandas as pd
+    df = pd.DataFrame.from_dict(stats, orient='index')
+    
+    st.dataframe(
+        df,
+        column_config={
+            "call_count": st.column_config.NumberColumn("调用次数"),
+            "avg_ms": st.column_config.NumberColumn("平均延迟 (ms)", format="%.2f"),
+            "min_ms": st.column_config.NumberColumn("最小延迟 (ms)", format="%.2f"),
+            "max_ms": st.column_config.NumberColumn("最大延迟 (ms)", format="%.2f"),
+            "errors": st.column_config.NumberColumn("错误数"),
+        },
+        use_container_width=True
+    )
+    
+    st.markdown("---")
+    st.subheader("最近追踪记录")
+    recent = tel.get_recent(20)
+    for r in reversed(recent):
+        status = "✅" if r["success"] else "❌"
+        with st.expander(f"{status} {r['timestamp'][11:19]} | {r['module']}.{r['function']} ({r['latency_ms']}ms)"):
+            st.json(r)
 
 
 def _page_add_model(router: ModelRouter, config_path: Path) -> None:

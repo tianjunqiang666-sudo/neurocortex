@@ -110,6 +110,61 @@ class LLMClient:
         response = self._client.messages.create(**kwargs)
         return response.content[0].text
 
+    async def chat_stream(self, prompt: str, system_prompt: str = "", temperature: float = 0.7,
+                          max_tokens: int = 2048) -> Any:
+        """统一流式对话接口 (AsyncGenerator)"""
+        messages = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        messages.append({"role": "user", "content": prompt})
+
+        import asyncio
+
+        if self.provider == "ollama":
+            kwargs = {
+                "model": self.model_name, "messages": messages,
+                "options": {"temperature": temperature}, "stream": True
+            }
+            # ollama.AsyncClient
+            async_client = ollama.AsyncClient(host=self.endpoint)
+            async for chunk in await async_client.chat(**kwargs):
+                yield chunk["message"]["content"]
+
+        elif self.provider == "openai_compatible":
+            import openai
+            async_client = openai.AsyncOpenAI(base_url=self.endpoint, api_key=self.api_key or "dummy")
+            kwargs = {
+                "model": self.model_name, "messages": messages,
+                "temperature": temperature, "max_tokens": max_tokens, "stream": True
+            }
+            stream = await async_client.chat.completions.create(**kwargs)
+            async for chunk in stream:
+                content = chunk.choices[0].delta.content
+                if content:
+                    yield content
+
+        elif self.provider == "anthropic":
+            import anthropic
+            async_client = anthropic.AsyncAnthropic(api_key=self.api_key)
+            system_msg = ""
+            user_messages = []
+            for msg in messages:
+                if msg["role"] == "system":
+                    system_msg = msg["content"]
+                else:
+                    user_messages.append(msg)
+            kwargs = {
+                "model": self.model_name, "messages": user_messages,
+                "temperature": temperature, "max_tokens": max_tokens,
+            }
+            if system_msg:
+                kwargs["system"] = system_msg
+            async with async_client.messages.stream(**kwargs) as stream:
+                async for text in stream.text_stream:
+                    yield text
+        else:
+            raise NotImplementedError(f"不支持的 provider: {self.provider}")
+
     def __repr__(self) -> str:
         return f"LLMClient(id={self.model_id}, provider={self.provider}, model={self.model_name})"
 

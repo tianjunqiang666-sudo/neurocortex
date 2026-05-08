@@ -13,6 +13,8 @@ from typing import Any, Optional
 
 from loguru import logger
 
+from neurocortex.core.adaptive_params import get_adaptive_manager
+
 try:
     from sentence_transformers import SentenceTransformer, util as st_util
     _HAS_ST = True
@@ -95,7 +97,8 @@ class ParietalLobe:
     }
 
     def __init__(self, error_threshold: float = 0.6) -> None:
-        self.error_threshold = error_threshold
+        self.default_error_threshold = error_threshold
+        self.adaptive_mgr = get_adaptive_manager()
         self._last_prediction: str | None = None
         self._embedding_model: Optional[SentenceTransformer] = None
 
@@ -128,7 +131,14 @@ class ParietalLobe:
         current_event_text = self._frame_to_text(event_frame)
         prediction_error = self._compute_prediction_error(current_event_text)
 
-        # 重要性评分
+        # 将预测误差记录到自适应管理器
+        self.adaptive_mgr.record_error(prediction_error)
+        
+        # 获取动态自适应阈值 (目前仅作打印，后续可用于动态路由控制)
+        current_threshold = self.adaptive_mgr.get_error_threshold()
+        logger.debug(f"ParietalLobe 预测误差: {prediction_error:.2f} (当前自适应阈值: {current_threshold:.2f})")
+
+        # 重要性评分 (后续也可以考虑引入动态阈值)
         importance = self._compute_importance(prediction_error, emotion_label)
 
         # 生成新预测 (简单的上下文延续)
@@ -211,7 +221,8 @@ class ParietalLobe:
         score = 0.3  # 基础分
 
         # 预测误差贡献
-        if prediction_error > self.error_threshold:
+        dynamic_threshold = self.adaptive_mgr.get_error_threshold()
+        if prediction_error > dynamic_threshold:
             score += 0.4  # 高误差 → 高重要性
             logger.info(f"高预测误差 ({prediction_error:.2f})，标记为高重要性")
         else:

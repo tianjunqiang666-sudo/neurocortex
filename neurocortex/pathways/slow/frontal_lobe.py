@@ -16,6 +16,9 @@ from typing import Any, Optional
 from loguru import logger
 
 from neurocortex.core.prefrontal_config import ModelRouter
+from neurocortex.core.event_bus import get_event_bus, Event, EventType
+from neurocortex.reasoning.cot_engine import CoTEngine
+from neurocortex.reasoning.critique_module import CritiqueModule
 
 
 class WorkingMemory:
@@ -108,6 +111,8 @@ class FrontalLobe:
         self.router = router
         self.working_memory = WorkingMemory()
         self.snapshots: list[dict[str, Any]] = []
+        self.cot_engine = CoTEngine(router)
+        self.critique_module = CritiqueModule(router)
 
         logger.info("FrontalLobe 初始化完成")
 
@@ -163,6 +168,89 @@ class FrontalLobe:
             error_msg = f"抱歉，我的额叶认知核心遇到了暂时的故障: {str(e)[:100]}"
             self.working_memory.add_turn("assistant", error_msg)
             return error_msg
+
+    async def generate_response_stream(
+        self,
+        user_input: str,
+        episode: Any = None,
+        memories: list[dict[str, Any]] | None = None,
+        knowledge_rules: list[str] | None = None,
+    ) -> Any:
+        """流式生成回复 (返回 AsyncGenerator)"""
+        self.working_memory.add_turn("user", user_input)
+        prompt = self._build_prompt(user_input, episode, memories, knowledge_rules)
+        event_bus = get_event_bus()
+
+        # 简单判断是否启用 CoT：包含关键词或长度超过一定阈值
+        cot_triggers = ["如何", "为什么", "比较", "计算", "分析", "步骤", "how", "why", "compare", "calculate"]
+        use_cot = any(trigger in user_input for trigger in cot_triggers) or len(user_input) > 50
+
+        try:
+            if use_cot:
+                logger.info("▶ FrontalLobe 启用 CoT 推理引擎...")
+                event_bus.publish(Event(EventType.REASONING_START, "FrontalLobe"))
+                # 由于 CoTEngine 目前不支持流式 yield token，我们在这里执行完后模拟输出，
+                # 或者后续重构 CoTEngine 支持 yield。目前先执行并返回。
+                context = f"情境描述: {episode.to_text() if episode else '无'}\n相关记忆: {memories}\n相关规则: {knowledge_rules}"
+                response = await self.cot_engine.execute(user_input, context)
+                
+                # CoT 后的反思
+                passed, score, verified_response = await self.critique_module.critique(
+                    user_input, response, context
+                )
+                if not passed:
+                    logger.warning(f"CoT 反思修正: {response[:30]}... -> {verified_response[:30]}...")
+                    response = verified_response
+
+                # 记录并模拟流式输出（因为 CoTEngine 内部已经发过 token 事件了，但 generator 还需要 yield）
+                # 这里我们假设 CoTEngine 已经在内部发了中间步骤的 token，最后我们 yield 最终答案
+                self.working_memory.add_turn("assistant", response)
+                yield response
+                event_bus.publish(Event(EventType.RESPONSE_COMPLETE, "FrontalLobe", {
+                    "response": response,
+                    "critique_score": score
+                }))
+            else:
+                client = self.router.get_client("frontal", required_capabilities=self.required_capabilities)
+                event_bus.publish(Event(EventType.REASONING_START, "FrontalLobe"))
+                
+                full_response = []
+                async for chunk in client.chat_stream(
+                    prompt=prompt,
+                    system_prompt=self.SYSTEM_PROMPT,
+                    temperature=0.7,
+                    max_tokens=2048,
+                ):
+                    full_response.append(chunk)
+                    event_bus.publish(Event(EventType.TOKEN_GENERATED, "FrontalLobe", {"token": chunk}))
+                    yield chunk
+                    
+                final_text = "".join(full_response)
+                final_text = self._clean_response(final_text)
+
+                # 自我反思机制
+                context_summary = f"记忆: {memories}\n规则: {knowledge_rules}"
+                passed, score, verified_response = await self.critique_module.critique(
+                    user_input, final_text, context_summary
+                )
+                
+                if not passed:
+                    logger.warning(f"反思修正: {final_text[:30]}... -> {verified_response[:30]}...")
+                    final_text = verified_response
+                    # 向用户提示发生了修正 (可选)
+                    # yield "\n\n[自我反思: 修正了回复中的逻辑偏差]"
+
+                self.working_memory.add_turn("assistant", final_text)
+                event_bus.publish(Event(EventType.RESPONSE_COMPLETE, "FrontalLobe", {
+                    "response": final_text,
+                    "critique_score": score
+                }))
+            
+        except Exception as e:
+            logger.error(f"FrontalLobe 流式生成失败: {e}")
+            error_msg = f"抱歉，故障: {str(e)[:100]}"
+            self.working_memory.add_turn("assistant", error_msg)
+            yield error_msg
 
     def analyze_feedback(self, user_input: str) -> float:
         """分析用户输入是否包含负面反馈 (0.0 ~ 1.0)"""

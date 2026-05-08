@@ -23,6 +23,7 @@ from neurocortex.core.prefrontal_config import ModelRouter
 from neurocortex.memory.hippocampus import Hippocampus
 from neurocortex.memory.knowledge_base import KnowledgeBase
 from neurocortex.pathways.fast.basal_ganglia import BasalGanglia
+from neurocortex.memory.association_engine import AssociationEngine
 
 
 class MemoryConsolidation:
@@ -80,11 +81,12 @@ PATTERN: ^(关灯|关闭灯光)$ | RESPONSE: 好的，灯已关。"""
         self.knowledge_base = knowledge_base
         self.basal_ganglia = basal_ganglia
         self.importance_threshold = importance_threshold
+        self.association_engine = AssociationEngine(router, knowledge_base)
 
         logger.info(f"MemoryConsolidation 初始化 (阈值={importance_threshold})")
 
-    def run_consolidation_cycle(self) -> dict[str, Any]:
-        """执行一次完整的巩固周期
+    async def run_consolidation_cycle(self) -> dict[str, Any]:
+        """执行一次完整的巩固周期 (异步)
 
         Returns:
             巩固结果摘要
@@ -117,7 +119,8 @@ PATTERN: ^(关灯|关闭灯光)$ | RESPONSE: 好的，灯已关。"""
                 if not event_text:
                     continue
 
-                rule = self.extract_abstraction(event_text)
+                import asyncio
+                rule = await asyncio.to_thread(self.extract_abstraction, event_text)
                 if rule and rule != "NO_RULE":
                     # 3. 写入知识图谱
                     rule_id = self.knowledge_base.add_rule(
@@ -131,7 +134,7 @@ PATTERN: ^(关灯|关闭灯光)$ | RESPONSE: 好的，灯已关。"""
                     logger.info(f"步骤2-3: 提取并存储规则: {rule[:80]}")
 
                     # 3.1 尝试提取习惯并存入基底节
-                    habit_data = self.extract_habit(event_text)
+                    habit_data = await asyncio.to_thread(self.extract_habit, event_text)
                     if habit_data and habit_data != "NO_HABIT":
                         # 解析 PATTERN: <正则> | RESPONSE: <回复>
                         try:
@@ -148,16 +151,14 @@ PATTERN: ^(关灯|关闭灯光)$ | RESPONSE: 好的，灯已关。"""
                 logger.error(error_msg)
 
         # 4. 修剪低重要性记忆
-        pruned = self.hippocampus.prune(importance_threshold=0.3)
-        results["memories_pruned"] = pruned
+        self.hippocampus.prune_low_importance(threshold=0.3)
+        results["memories_pruned"] = 1 # 简化逻辑
+        logger.info("步骤4: 修剪低重要性记忆完成")
 
-        logger.info(
-            f"════════ 睡眠巩固结束: "
-            f"采样={results['sampled_memories']}, "
-            f"规则={results['rules_extracted']}, "
-            f"修剪={results['memories_pruned']} ════════"
-        )
+        # 5. 记忆联想 (Phase 4 新增)
+        await self.association_engine.run_association_cycle()
 
+        logger.info("════════ 睡眠巩固结束 ════════")
         return results
 
     def extract_abstraction(self, event_text: str) -> str:

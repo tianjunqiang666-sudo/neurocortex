@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NeuroCortex AI — 神经通路可视化</title>
+    <style>
+        :root {
+            --bg-color: #050a10;
+            --panel-bg: rgba(15, 25, 40, 0.7);
+            --accent-blue: #00d2ff;
+            --accent-green: #00ff88;
+            --accent-red: #ff4d4d;
+            --text-main: #e0e0e0;
+            --border-color: rgba(0, 210, 255, 0.3);
+        }
+
+        body {
+            background: var(--bg-color);
+            color: var(--text-main);
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            margin: 0;
+            overflow: hidden;
+            display: flex;
+            height: 100vh;
+        }
+
+        /* 背景装饰 */
+        .grid-bg {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-image: linear-gradient(var(--border-color) 1px, transparent 1px),
+                              linear-gradient(90deg, var(--border-color) 1px, transparent 1px);
+            background-size: 50px 50px;
+            opacity: 0.1;
+            z-index: -1;
+        }
+
+        /* 侧边栏日志 */
+        #sidebar {
+            width: 350px;
+            background: var(--panel-bg);
+            backdrop-filter: blur(10px);
+            border-right: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+
+        .header {
+            font-size: 1.2rem;
+            font-weight: bold;
+            color: var(--accent-blue);
+            margin-bottom: 20px;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            border-bottom: 2px solid var(--accent-blue);
+            padding-bottom: 10px;
+        }
+
+        #event-log {
+            flex-grow: 1;
+            overflow-y: auto;
+            font-family: 'Fira Code', monospace;
+            font-size: 0.85rem;
+        }
+
+        .event-entry {
+            margin-bottom: 10px;
+            padding: 8px;
+            border-left: 3px solid var(--accent-blue);
+            background: rgba(255, 255, 255, 0.05);
+            animation: fadeIn 0.3s ease-out;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateX(-10px); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+
+        /* 主画布区 */
+        #main-canvas {
+            flex-grow: 1;
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .brain-nodes {
+            position: relative;
+            width: 800px;
+            height: 500px;
+        }
+
+        .node {
+            position: absolute;
+            width: 100px;
+            height: 40px;
+            background: var(--panel-bg);
+            border: 1px solid var(--accent-blue);
+            border-radius: 5px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.8rem;
+            font-weight: bold;
+            box-shadow: 0 0 15px rgba(0, 210, 255, 0.2);
+            transition: all 0.3s;
+            z-index: 2;
+        }
+
+        .node.active {
+            background: var(--accent-blue);
+            color: black;
+            box-shadow: 0 0 30px var(--accent-blue);
+            transform: scale(1.1);
+        }
+
+        .node.thinking {
+            border-color: var(--accent-green);
+            animation: pulse 1s infinite alternate;
+        }
+
+        @keyframes pulse {
+            from { box-shadow: 0 0 10px rgba(0, 255, 136, 0.2); }
+            to { box-shadow: 0 0 30px rgba(0, 255, 136, 0.8); }
+        }
+
+        /* 连线 */
+        svg {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+        }
+
+        path {
+            stroke: var(--accent-blue);
+            stroke-width: 2;
+            fill: none;
+            opacity: 0.2;
+            transition: opacity 0.3s;
+        }
+
+        path.active {
+            stroke: var(--accent-green);
+            stroke-width: 3;
+            opacity: 1;
+            stroke-dasharray: 10;
+            animation: flow 1s linear infinite;
+        }
+
+        @keyframes flow {
+            from { stroke-dashoffset: 20; }
+            to { stroke-dashoffset: 0; }
+        }
+
+        /* 输入框 */
+        #input-container {
+            position: absolute;
+            bottom: 40px;
+            width: 70%;
+            background: var(--panel-bg);
+            border: 1px solid var(--border-color);
+            padding: 10px;
+            border-radius: 10px;
+            display: flex;
+            gap: 10px;
+        }
+
+        #user-input {
+            flex-grow: 1;
+            background: transparent;
+            border: none;
+            color: white;
+            font-size: 1rem;
+            outline: none;
+        }
+
+        #send-btn {
+            background: var(--accent-blue);
+            color: black;
+            border: none;
+            padding: 8px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+
+        /* 响应展示 */
+        #response-display {
+            position: absolute;
+            top: 40px;
+            width: 80%;
+            max-height: 150px;
+            overflow-y: auto;
+            background: rgba(0, 0, 0, 0.4);
+            padding: 15px;
+            border-radius: 10px;
+            font-size: 1.1rem;
+            line-height: 1.6;
+            border-left: 4px solid var(--accent-green);
+        }
+    </style>
+</head>
+<body>
+    <div class="grid-bg"></div>
+
+    <div id="sidebar">
+        <div class="header">Neural Signals</div>
+        <div id="event-log"></div>
+    </div>
+
+    <div id="main-canvas">
+        <div id="response-display">等待指令输入...</div>
+
+        <div class="brain-nodes" id="nodes-container">
+            <!-- 节点布局 -->
+            <div class="node" id="node-thalamus" style="top: 230px; left: 50px;">THALAMUS</div>
+            <div class="node" id="node-amygdala" style="top: 150px; left: 200px;">AMYGDALA</div>
+            <div class="node" id="node-basal" style="top: 310px; left: 200px;">BASAL GANGLIA</div>
+            <div class="node" id="node-hippocampus" style="top: 230px; left: 350px;">HIPPOCAMPUS</div>
+            <div class="node" id="node-parietal" style="top: 150px; left: 500px;">PARIETAL</div>
+            <div class="node" id="node-temporal" style="top: 310px; left: 500px;">TEMPORAL</div>
+            <div class="node" id="node-frontal" style="top: 230px; left: 650px;">FRONTAL</div>
+
+            <!-- SVG 连线 -->
+            <svg id="connections-svg">
+                <path id="path-thalamus-amygdala" d="M 150 250 L 200 170"></path>
+                <path id="path-thalamus-basal" d="M 150 250 L 200 330"></path>
+                <path id="path-thalamus-hippo" d="M 150 250 L 350 250"></path>
+                <path id="path-hippo-parietal" d="M 450 250 L 500 170"></path>
+                <path id="path-hippo-temporal" d="M 450 250 L 500 330"></path>
+                <path id="path-parietal-frontal" d="M 600 170 L 650 250"></path>
+                <path id="path-temporal-frontal" d="M 600 330 L 650 250"></path>
+            </svg>
+        </div>
+
+        <div id="input-container">
+            <input type="text" id="user-input" placeholder="输入消息开始交互..." autocomplete="off">
+            <button id="send-btn">SEND</button>
+        </div>
+    </div>
+
+    <script>
+        const logContainer = document.getElementById('event-log');
+        const responseDisplay = document.getElementById('response-display');
+        const userInput = document.getElementById('user-input');
+        const sendBtn = document.getElementById('send-btn');
+        
+        let ws;
+
+        function connect() {
+            ws = new WebSocket('ws://' + window.location.host + '/ws/chat');
+            
+            ws.onopen = () => {
+                addLog('System', 'Neural Connection Established.');
+            };
+
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                
+                if (data.type === 'event') {
+                    handleNeuralEvent(data);
+                } else if (data.type === 'chunk') {
+                    if (responseDisplay.innerText === '等待指令输入...') responseDisplay.innerText = '';
+                    responseDisplay.innerText += data.content;
+                } else if (data.type === 'done') {
+                    addLog('System', 'Response Cycle Complete (' + data.pathway + ')');
+                    resetNodes();
+                }
+            };
+
+            ws.onclose = () => {
+                addLog('System', 'Connection Lost. Retrying...');
+                setTimeout(connect, 3000);
+            };
+        }
+
+        function addLog(source, message) {
+            const entry = document.createElement('div');
+            entry.className = 'event-entry';
+            entry.innerHTML = `<strong style="color:var(--accent-blue)">[${source}]</strong> ${message}`;
+            logContainer.prepend(entry);
+        }
+
+        function handleNeuralEvent(evt) {
+            const type = evt.event_type;
+            const source = evt.source;
+            const payload = evt.payload;
+
+            addLog(source, type.toUpperCase());
+
+            // 节点高亮逻辑
+            if (type === 'input_received') {
+                highlightNode('node-thalamus');
+            } else if (type === 'thalamus_routed') {
+                activatePath('path-thalamus-amygdala');
+                activatePath('path-thalamus-basal');
+            } else if (type === 'habit_matched') {
+                highlightNode('node-basal');
+            } else if (type === 'episode_created') {
+                highlightNode('node-parietal');
+                activatePath('path-thalamus-hippo');
+            } else if (type === 'memory_encoded') {
+                highlightNode('node-hippocampus');
+            } else if (type === 'critique_completed') {
+                highlightNode('node-frontal', 'thinking');
+            } else if (type === 'reasoning_start') {
+                highlightNode('node-frontal', 'thinking');
+                activatePath('path-parietal-frontal');
+                activatePath('path-temporal-frontal');
+            }
+        }
+
+        function highlightNode(id, cls = 'active') {
+            const el = document.getElementById(id);
+            if (el) {
+                el.classList.add(cls);
+                setTimeout(() => el.classList.remove(cls), 2000);
+            }
+        }
+
+        function activatePath(id) {
+            const el = document.getElementById(id);
+            if (el) {
+                el.classList.add('active');
+                setTimeout(() => el.classList.remove('active'), 2000);
+            }
+        }
+
+        function resetNodes() {
+            document.querySelectorAll('.node').forEach(n => n.classList.remove('active', 'thinking'));
+        }
+
+        sendBtn.onclick = () => {
+            const text = userInput.value;
+            if (text && ws.readyState === WebSocket.OPEN) {
+                ws.send(text);
+                responseDisplay.innerText = '';
+                userInput.value = '';
+                addLog('User', text);
+            }
+        };
+
+        userInput.onkeypress = (e) => {
+            if (e.key === 'Enter') sendBtn.onclick();
+        };
+
+        connect();
+    </script>
+</body>
+</html>

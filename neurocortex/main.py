@@ -153,7 +153,7 @@ async def process_input(text: str, modules: dict) -> str:
         modules: 模块字典
 
     Returns:
-        系统回复
+        生成器，逐字 yield 响应内容
     """
     thalamus = modules["thalamus"]
     occipital_lobe = modules["occipital_lobe"]
@@ -165,6 +165,8 @@ async def process_input(text: str, modules: dict) -> str:
     amygdala = modules["amygdala"]
     basal_ganglia = modules["basal_ganglia"]
     brainstem = modules["brainstem"]
+    from neurocortex.core.event_bus import get_event_bus, Event, EventType
+    event_bus = get_event_bus()
 
     import os
     modality = "text"
@@ -177,14 +179,18 @@ async def process_input(text: str, modules: dict) -> str:
 
     # 1. Thalamus: 生成 SensoryPacket
     logger.info(f"▶ Thalamus 处理输入... (模态: {modality})")
+    event_bus.publish(Event(EventType.INPUT_RECEIVED, "Main", {"text": text, "modality": modality}))
     packet = thalamus.process_input(text, modality=modality)
+    event_bus.publish(Event(EventType.THALAMUS_ROUTED, "Thalamus", {"routing": packet.routing}))
 
     # 2. 快速通路检查 (系统 1)
     
     # 2.1 BasalGanglia: 习惯匹配
     habit_response = basal_ganglia.lookup(packet)
     if habit_response:
-        return habit_response
+        event_bus.publish(Event(EventType.HABIT_MATCHED, "BasalGanglia", {"habit_id": habit_response.get("habit_id")}))
+        yield habit_response["response"]
+        return
 
     # 2.2 Amygdala: 若高显著性，经过杏仁核
     if "Amygdala" in packet.routing:
@@ -192,6 +198,7 @@ async def process_input(text: str, modules: dict) -> str:
         evaluated = amygdala.evaluate(packet)
         alert_level = amygdala.should_alert_brainstem(evaluated)
         if alert_level:
+            event_bus.publish(Event(EventType.THREAT_DETECTED, "Amygdala", {"level": alert_level}))
             brainstem.alert(alert_level, "Amygdala",
                            f"威胁等级={evaluated.threat_level:.2f}, 情绪={evaluated.emotion_label}")
 
@@ -201,7 +208,8 @@ async def process_input(text: str, modules: dict) -> str:
         correction_resp = modules["frontal_lobe"].trigger_correction(
             modules["hippocampus"], modules["knowledge_base"], modules["basal_ganglia"]
         )
-        return correction_resp
+        yield correction_resp
+        return
 
     # 3. 慢速通路: 语义处理
     visual_desc = None
@@ -238,17 +246,15 @@ async def process_input(text: str, modules: dict) -> str:
     rules = knowledge_base.query_rules(text)
     rule_texts = [r.get("rule_text", "") for r in rules[:3]]
 
-    # 7. FrontalLobe: 生成回复
+    # 7. FrontalLobe: 生成回复 (流式)
     logger.info("▶ FrontalLobe 推理生成回复...")
-    response = await asyncio.to_thread(
-        modules["frontal_lobe"].generate_response,
+    async for chunk in modules["frontal_lobe"].generate_response_stream(
         user_input=text,
         episode=episode,
         memories=memories,
         knowledge_rules=rule_texts if rule_texts else None
-    )
-
-    return response
+    ):
+        yield chunk
 
 
 async def handle_command(command: str, modules: dict) -> str | None:
@@ -265,7 +271,7 @@ async def handle_command(command: str, modules: dict) -> str | None:
     elif cmd == "/sleep":
         logger.info("手动触发睡眠巩固...")
         modules["brainstem"].trigger_sleep()
-        result = await asyncio.to_thread(modules["consolidation"].run_consolidation_cycle)
+        result = await modules["consolidation"].run_consolidation_cycle()
         return (
             f"\n💤 睡眠巩固完成:\n"
             f"  采样记忆: {result['sampled_memories']}\n"
@@ -346,6 +352,10 @@ async def main_async() -> None:
         print(f"\n❌ 初始化失败: {e}")
         return
 
+    from neurocortex.core.event_bus import get_event_bus
+    event_bus = get_event_bus()
+    await event_bus.start()
+
     print("\n🟢 NeuroCortex AI 已就绪！输入文本开始对话，输入 /help 查看命令。\n")
 
     while True:
@@ -368,13 +378,16 @@ async def main_async() -> None:
             print(result)
             continue
 
-        print("\n🧠 NeuroCortex AI 正在思考...\n")
+        print("🤖 AI > ", end="", flush=True)
         try:
-            response = await process_input(user_input, modules)
-            print(f"🤖 AI > {response}\n")
+            async for chunk in process_input(user_input, modules):
+                print(chunk, end="", flush=True)
+            print("\n")
         except Exception as e:
             logger.error(f"处理失败: {e}")
             print(f"\n❌ 处理出错: {e}\n")
+
+    await event_bus.stop()
 
 
 def main():

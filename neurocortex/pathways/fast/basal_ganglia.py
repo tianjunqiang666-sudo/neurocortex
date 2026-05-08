@@ -27,14 +27,18 @@ class BasalGanglia:
       - 若匹配成功，输出固定的动作指令，直接短路慢速系统
     """
 
-    def __init__(self) -> None:
+    def __init__(self, habits_path: Optional[Path | str] = None) -> None:
         self.habits: list[dict[str, Any]] = []
+        if habits_path:
+            self._habits_file = Path(habits_path)
+        else:
+            self._habits_file = _DATA_DIR / "habits.json"
         self._load_habits()
 
     def _load_habits(self) -> None:
         """加载习惯库"""
-        _DATA_DIR.mkdir(parents=True, exist_ok=True)
-        if not _HABITS_FILE.exists():
+        self._habits_file.parent.mkdir(parents=True, exist_ok=True)
+        if not self._habits_file.exists():
             # 预置一些默认习惯测试
             default_habits = [
                 {
@@ -50,13 +54,13 @@ class BasalGanglia:
                     "description": "紧急静默反射"
                 }
             ]
-            with open(_HABITS_FILE, "w", encoding="utf-8") as f:
+            with open(self._habits_file, "w", encoding="utf-8") as f:
                 json.dump(default_habits, f, indent=2, ensure_ascii=False)
             self.habits = default_habits
             logger.info("初始化了默认习惯库")
         else:
             try:
-                with open(_HABITS_FILE, "r", encoding="utf-8") as f:
+                with open(self._habits_file, "r", encoding="utf-8") as f:
                     self.habits = json.load(f)
                 logger.info(f"成功加载 {len(self.habits)} 个习惯规则")
             except Exception as e:
@@ -66,7 +70,7 @@ class BasalGanglia:
     def save_habits(self) -> None:
         """保存习惯库"""
         try:
-            with open(_HABITS_FILE, "w", encoding="utf-8") as f:
+            with open(self._habits_file, "w", encoding="utf-8") as f:
                 json.dump(self.habits, f, indent=2, ensure_ascii=False)
             logger.debug("习惯库已同步至磁盘")
         except Exception as e:
@@ -92,7 +96,7 @@ class BasalGanglia:
             packet: SensoryPacket (包含 raw_data 和 modality)
             
         Returns:
-            若匹配，返回对应的固定回复；否则返回 None
+            若匹配，返回包含 'response' 和 'habit_id' 的字典；否则返回 None
         """
         if packet.modality != "text":
             return None  # 目前只针对文本做正则反射
@@ -108,7 +112,7 @@ class BasalGanglia:
             try:
                 if re.search(pattern, text, re.IGNORECASE):
                     logger.success(f"⚡ 基底节习惯触发! 匹配规则: {habit.get('id')} - {habit.get('description')}")
-                    return habit.get("response")
+                    return {"habit_id": habit.get("id"), "response": habit.get("response")}
             except re.error as e:
                 logger.error(f"习惯正则表达式错误 ({pattern}): {e}")
                 
